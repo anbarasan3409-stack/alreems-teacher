@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  # Teacher Frontend Service
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: alreems-teacher
+    ports:
+      - "${PORT:-3001}:${PORT:-3001}"
+    env_file:
+      - .env.production
+    restart: unless-stopped
+
+

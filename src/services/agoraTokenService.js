@@ -7,6 +7,30 @@ const getAgoraTokenEndpoint = () => {
 };
 
 export const agoraTokenService = {
+  // Get Agora App ID with backend API fallback
+  getAppId: async () => {
+    const envAppId = process.env.NEXT_PUBLIC_AGORA_APP_ID;
+    if (envAppId && envAppId !== 'your_agora_app_id_here') {
+      return envAppId;
+    }
+
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/agora/app-id`, {
+        credentials: 'include'
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data && data.appId && data.appId !== 'YOUR_AGORA_APP_ID') {
+          return data.appId;
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to fetch Agora App ID from backend:', error);
+    }
+
+    return envAppId || '6065f596110e4a77b311d3316f33a6f2';
+  },
+
   // Generate token for joining a channel as a teacher
   generateToken: async (channelName, userRole = 'host') => {
     try {

@@ -83,11 +83,17 @@ export default function SessionPage() {
     );
   }
 
+  const teacherName = session.teacher?.name || session.Teacher?.Name || session.teacher_name || session.TeacherName || '';
+  const teacherId = session.teacher_id || session.TeacherID || session.teacher?.id;
+
   return (
     <AgoraVideoSession 
       sessionId={sessionId}
-      channelName={session.channel_name || session.ChannelName}
-      userRole="host"
+      channelName={session.channelName || session.channel_name || session.ChannelName}
+      courseId={session.courseId || session.course_id || session.CourseID}
+      userRole="teacher"
+      teacherName={teacherName}
+      teacherId={teacherId}
       onLeave={handleLeaveSession}
       sessionTitle={session.title || session.Title}
     />

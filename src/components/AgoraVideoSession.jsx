@@ -18,12 +18,6 @@ import {
 import { COLORS } from '@/theme/themeConstants';
 import dynamic from 'next/dynamic';
 
-// Import Agora RTC SDK dynamically to avoid SSR issues
-const AgoraRTC = dynamic(
-  () => import('agora-rtc-sdk-ng').then(mod => mod.default),
-  { ssr: false }
-);
-
 // Import Whiteboard wrapper with complete client-side isolation
 const WhiteboardWrapper = dynamic(
   () => import('./WhiteboardWrapper'),
@@ -72,12 +66,14 @@ const AgoraVideoSession = ({
   // Refs
   const localVideoRef = useRef(null);
   const clientRef = useRef(null); // Use ref for client to avoid closure issues in event handlers
+  const cameraTrackRef = useRef(null);
+  const screenTrackRef = useRef(null);
   const dataStreamIdRef = useRef(null);
   const allWbStrokesRef = useRef([]);
   
   // Control states
-  const [isVideoEnabled, setIsVideoEnabled] = useState(false); // Default OFF
-  const [isAudioEnabled, setIsAudioEnabled] = useState(false); // Default OFF
+  const [isVideoEnabled, setIsVideoEnabled] = useState(true); // Auto-enabled on join
+  const [isAudioEnabled, setIsAudioEnabled] = useState(true); // Auto-enabled on join
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [volume, setVolume] = useState(50);
   const [videoReady, setVideoReady] = useState(false);
@@ -101,18 +97,11 @@ const AgoraVideoSession = ({
         videoElement.autoplay = true;
         videoElement.playsInline = true;
 
-        const playPromise = localVideoTrack.play(videoElement);
-        playPromise.then(() => {
-          setVideoReady(true);
-        }).catch((error) => {});
+        await Promise.resolve(localVideoTrack.play(videoElement));
+        setVideoReady(true);
       } catch (error) {}
     }
   };
-  
-  // Separate effect to handle video element mounting
-  useEffect(() => {
-    if (localVideoRef.current) {}
-  }, [localVideoRef.current]);
   
   // Fallback: try to play video whenever both element and track are available
   useEffect(() => {
@@ -125,15 +114,16 @@ const AgoraVideoSession = ({
             videoElement.autoplay = true;
             videoElement.playsInline = true;
             
-            await localVideoTrack.play(videoElement);
+            await Promise.resolve(localVideoTrack.play(videoElement));
             setVideoReady(true);
           }
         } catch (error) {}
       };
       
-      setTimeout(attemptPlayback, 500);
+      const timer = setTimeout(attemptPlayback, 500);
+      return () => clearTimeout(timer);
     }
-  }, [localVideoRef.current, localVideoTrack, videoReady]);
+  }, [localVideoTrack, videoReady]);
 
   // Ensure video element is ready when component mounts
   useEffect(() => {
@@ -144,16 +134,19 @@ const AgoraVideoSession = ({
         videoElement.autoplay = true;
         videoElement.playsInline = true;
 
-        const playPromise = localVideoTrack.play(videoElement);
-        playPromise.then(() => {
-          setVideoReady(true);
-        }).catch((playError) => {
-          setTimeout(() => {
-            if (localVideoRef.current && localVideoTrack) {
-              localVideoTrack.play(localVideoRef.current).catch(() => {});
-            }
-          }, 1000);
-        });
+        Promise.resolve(localVideoTrack.play(videoElement))
+          .then(() => {
+            setVideoReady(true);
+          })
+          .catch(() => {
+            setTimeout(() => {
+              try {
+                if (localVideoRef.current && localVideoTrack) {
+                  Promise.resolve(localVideoTrack.play(localVideoRef.current)).catch(() => {});
+                }
+              } catch (e) {}
+            }, 1000);
+          });
       } catch (error) {}
     }
   }, [isJoined, localVideoTrack]);
@@ -467,30 +460,55 @@ const AgoraVideoSession = ({
       const AgoraRTCModule = await import('agora-rtc-sdk-ng');
       const AgoraRTC = AgoraRTCModule.default;
 
-      const [videoTrack, audioTrack] = await Promise.all([
-        AgoraRTC.createCameraVideoTrack({
-          encoderConfig: {
-            width: 640,
-            height: 480,
-            frameRate: 15,
-            bitrateMin: 400,
-            bitrateMax: 1000,
-          }
-        }),
-        AgoraRTC.createMicrophoneAudioTrack({
-          encoderConfig: "music_standard",
-        })
-      ]);
+      let videoTrack = null;
+      let audioTrack = null;
 
+      try {
+        [videoTrack, audioTrack] = await Promise.all([
+          AgoraRTC.createCameraVideoTrack({
+            encoderConfig: {
+              width: 640,
+              height: 480,
+              frameRate: 15,
+              bitrateMin: 400,
+              bitrateMax: 1000,
+            }
+          }),
+          AgoraRTC.createMicrophoneAudioTrack({
+            encoderConfig: "music_standard",
+          })
+        ]);
+      } catch (bothErr) {
+        // Fallback: try audio and video separately so one missing device doesn't block the other
+        try {
+          audioTrack = await AgoraRTC.createMicrophoneAudioTrack({ encoderConfig: "music_standard" });
+        } catch (aErr) {
+          console.warn('Microphone access failed:', aErr);
+        }
+        try {
+          videoTrack = await AgoraRTC.createCameraVideoTrack({
+            encoderConfig: { width: 640, height: 480, frameRate: 15, bitrateMin: 400, bitrateMax: 1000 }
+          });
+        } catch (vErr) {
+          console.warn('Camera access failed:', vErr);
+        }
+        if (!audioTrack && !videoTrack) {
+          throw bothErr;
+        }
+      }
+
+      cameraTrackRef.current = videoTrack;
       setLocalVideoTrack(videoTrack);
       setLocalAudioTrack(audioTrack);
+      setIsVideoEnabled(Boolean(videoTrack));
+      setIsAudioEnabled(Boolean(audioTrack));
 
-      await agoraClient.publish([videoTrack, audioTrack]);
-
-      await videoTrack.setEnabled(false);
-      await audioTrack.setEnabled(false);
+      const tracksToPublish = [videoTrack, audioTrack].filter(Boolean);
+      if (tracksToPublish.length > 0) {
+        await agoraClient.publish(tracksToPublish);
+      }
     } catch (error) {
-      setError(error.message || 'Failed to access camera or microphone.');
+      setError(error?.message || 'Failed to access camera or microphone.');
     }
   };
 
@@ -512,7 +530,11 @@ const AgoraVideoSession = ({
         } else if (mediaType === 'audio') {
           existingUser.audioTrack = user.audioTrack;
           existingUser.hasAudio = true;
-          user.audioTrack.play();
+          try {
+            user.audioTrack?.play();
+          } catch (audioErr) {
+            console.warn('Audio play failed:', audioErr);
+          }
         }
         
         newMap.set(user.uid, existingUser);
@@ -521,10 +543,14 @@ const AgoraVideoSession = ({
 
       if (mediaType === 'video' && user.videoTrack) {
         setTimeout(() => {
-          const container = document.getElementById(`remote-video-${user.uid}`);
-          if (container) {
-            container.innerHTML = '';
-            user.videoTrack.play(container);
+          try {
+            const container = document.getElementById(`remote-video-${user.uid}`);
+            if (container && user.videoTrack) {
+              container.innerHTML = '';
+              user.videoTrack.play(container);
+            }
+          } catch (videoErr) {
+            console.warn('Remote video play failed:', videoErr);
           }
         }, 150);
       }
@@ -574,26 +600,34 @@ const AgoraVideoSession = ({
 
   // Control functions
   const toggleVideo = async () => {
-    if (localVideoTrack) {
-      if (isVideoEnabled) {
-        await localVideoTrack.setEnabled(false);
-        setIsVideoEnabled(false);
-      } else {
-        await localVideoTrack.setEnabled(true);
-        setIsVideoEnabled(true);
+    try {
+      if (localVideoTrack) {
+        if (isVideoEnabled) {
+          await localVideoTrack.setEnabled(false);
+          setIsVideoEnabled(false);
+        } else {
+          await localVideoTrack.setEnabled(true);
+          setIsVideoEnabled(true);
+        }
       }
+    } catch (err) {
+      console.warn('Failed to toggle video:', err);
     }
   };
 
   const toggleAudio = async () => {
-    if (localAudioTrack) {
-      if (isAudioEnabled) {
-        await localAudioTrack.setEnabled(false);
-        setIsAudioEnabled(false);
-      } else {
-        await localAudioTrack.setEnabled(true);
-        setIsAudioEnabled(true);
+    try {
+      if (localAudioTrack) {
+        if (isAudioEnabled) {
+          await localAudioTrack.setEnabled(false);
+          setIsAudioEnabled(false);
+        } else {
+          await localAudioTrack.setEnabled(true);
+          setIsAudioEnabled(true);
+        }
       }
+    } catch (err) {
+      console.warn('Failed to toggle audio:', err);
     }
   };
 
@@ -609,12 +643,15 @@ const AgoraVideoSession = ({
       const currentClient = clientRef.current;
       if (!currentClient) return;
       
-      if (localVideoTrack) {
-        await currentClient.unpublish(localVideoTrack);
-        localVideoTrack.close();
+      // Keep camera track alive (just unpublish + disable) so stopping screen share doesn't re-prompt permission
+      const camTrack = cameraTrackRef.current || localVideoTrack;
+      if (camTrack) {
+        await currentClient.unpublish(camTrack);
+        await camTrack.setEnabled(false);
       }
       
       await currentClient.publish(screenTrack);
+      screenTrackRef.current = screenTrack;
       
       if (localVideoRef.current) {
         screenTrack.play(localVideoRef.current);
@@ -638,34 +675,40 @@ const AgoraVideoSession = ({
       const currentClient = clientRef.current;
       if (!currentClient) return;
       
-      if (localVideoTrack) {
-        await currentClient.unpublish(localVideoTrack);
-        localVideoTrack.close();
+      const activeScreenTrack = screenTrackRef.current || (isScreenSharing ? localVideoTrack : null);
+      if (activeScreenTrack) {
+        await currentClient.unpublish(activeScreenTrack);
+        activeScreenTrack.close();
+        screenTrackRef.current = null;
       }
       
-      const AgoraRTCModule = await import('agora-rtc-sdk-ng');
-      const AgoraRTC = AgoraRTCModule.default;
+      let camTrack = cameraTrackRef.current;
+      if (!camTrack) {
+        const AgoraRTCModule = await import('agora-rtc-sdk-ng');
+        const AgoraRTC = AgoraRTCModule.default;
+        camTrack = await AgoraRTC.createCameraVideoTrack({
+          encoderConfig: {
+            width: 640,
+            height: 480,
+            frameRate: 15,
+            bitrateMin: 400,
+            bitrateMax: 1000,
+          }
+        });
+        cameraTrackRef.current = camTrack;
+      } else {
+        await camTrack.setEnabled(true);
+      }
       
-      const newVideoTrack = await AgoraRTC.createCameraVideoTrack({
-        encoderConfig: {
-          width: 640,
-          height: 480,
-          frameRate: 15,
-          bitrateMin: 400,
-          bitrateMax: 1000,
-        }
-      });
+      await currentClient.publish(camTrack);
       
-      await currentClient.publish(newVideoTrack);
-      await newVideoTrack.setEnabled(false);
-      
-      setLocalVideoTrack(newVideoTrack);
+      setLocalVideoTrack(camTrack);
       setIsScreenSharing(false);
-      setIsVideoEnabled(false);
+      setIsVideoEnabled(true);
       
       if (localVideoRef.current) {
         try {
-          await newVideoTrack.play(localVideoRef.current);
+          await Promise.resolve(camTrack.play(localVideoRef.current));
         } catch (playError) {}
       }
     } catch (error) {
@@ -846,11 +889,19 @@ const AgoraVideoSession = ({
         }
       }
 
+      if (cameraTrackRef.current) {
+        try { cameraTrackRef.current.close(); } catch (e) {}
+        cameraTrackRef.current = null;
+      }
+      if (screenTrackRef.current) {
+        try { screenTrackRef.current.close(); } catch (e) {}
+        screenTrackRef.current = null;
+      }
       if (localVideoTrack) {
-        localVideoTrack.close();
+        try { localVideoTrack.close(); } catch (e) {}
       }
       if (localAudioTrack) {
-        localAudioTrack.close();
+        try { localAudioTrack.close(); } catch (e) {}
       }
       if (client) {
         await client.leave();
@@ -1116,13 +1167,14 @@ const AgoraVideoSession = ({
               </div>
             ) : (
               remoteStudents.map((user, studentIdx) => {
-                const studentName = 
+                const rawName = 
                   studentNames.get(user.uid) || 
                   studentNames.get(Number(user.uid)) || 
                   studentNames.get(String(user.uid)) || 
                   (studentList[studentIdx] ? (studentList[studentIdx].name || studentList[studentIdx].Name) : null) || 
                   studentNames.get(studentIdx) || 
                   `Student #${studentIdx + 1}`;
+                const studentName = typeof rawName === 'string' ? rawName : String(rawName || `Student #${studentIdx + 1}`);
 
                 const initials = studentName
                   .replace(/[^a-zA-Z0-9 ]/g, '')

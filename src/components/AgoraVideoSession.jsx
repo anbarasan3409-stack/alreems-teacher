@@ -74,8 +74,8 @@ const AgoraVideoSession = ({
   const allWbStrokesRef = useRef([]);
   
   // Control states
-  const [isVideoEnabled, setIsVideoEnabled] = useState(true); // Auto-enabled on join
-  const [isAudioEnabled, setIsAudioEnabled] = useState(true); // Auto-enabled on join
+  const [isVideoEnabled, setIsVideoEnabled] = useState(false); // Default OFF
+  const [isAudioEnabled, setIsAudioEnabled] = useState(false); // Default OFF
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [volume, setVolume] = useState(50);
   const [videoReady, setVideoReady] = useState(false);
@@ -523,13 +523,21 @@ const AgoraVideoSession = ({
             }
           }),
           AgoraRTC.createMicrophoneAudioTrack({
-            encoderConfig: "music_standard",
+            encoderConfig: "speech_standard",
+            AEC: true,
+            ANS: true,
+            AGC: true,
           })
         ]);
       } catch (bothErr) {
         // Fallback: try audio and video separately so one missing device doesn't block the other
         try {
-          audioTrack = await AgoraRTC.createMicrophoneAudioTrack({ encoderConfig: "music_standard" });
+          audioTrack = await AgoraRTC.createMicrophoneAudioTrack({
+            encoderConfig: "speech_standard",
+            AEC: true,
+            ANS: true,
+            AGC: true,
+          });
         } catch (aErr) {
           console.warn('Microphone access failed:', aErr);
         }
@@ -548,13 +556,21 @@ const AgoraVideoSession = ({
       cameraTrackRef.current = videoTrack;
       setLocalVideoTrack(videoTrack);
       setLocalAudioTrack(audioTrack);
-      setIsVideoEnabled(Boolean(videoTrack));
-      setIsAudioEnabled(Boolean(audioTrack));
 
       const tracksToPublish = [videoTrack, audioTrack].filter(Boolean);
       if (tracksToPublish.length > 0) {
         await agoraClient.publish(tracksToPublish);
       }
+
+      // Default teacher mic and camera OFF on join (tracks stay published/ready without re-prompting)
+      if (videoTrack) {
+        await videoTrack.setEnabled(false);
+      }
+      if (audioTrack) {
+        await audioTrack.setEnabled(false);
+      }
+      setIsVideoEnabled(false);
+      setIsAudioEnabled(false);
     } catch (error) {
       setError(error?.message || 'Failed to access camera or microphone.');
     }

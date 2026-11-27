@@ -201,10 +201,11 @@ const AgoraVideoSession = ({
             students.forEach((student, index) => {
               const displayName = student.name || student.Name || student.first_name || student.FirstName || student.email || `Student #${index + 1}`;
               namesMap.set(index, displayName);
-              if (student.id) {
-                namesMap.set(student.id, displayName);
-                namesMap.set(Number(student.id), displayName);
-                namesMap.set(String(student.id), displayName);
+              const sid = student.id || student.ID || student.student_id || student.StudentID;
+              if (sid) {
+                namesMap.set(sid, displayName);
+                namesMap.set(Number(sid), displayName);
+                namesMap.set(String(sid), displayName);
               }
             });
             return namesMap;

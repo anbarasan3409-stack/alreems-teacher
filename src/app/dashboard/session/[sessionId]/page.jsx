@@ -5,6 +5,52 @@ import { useParams, useRouter } from 'next/navigation';
 import AgoraVideoSession from '@/components/AgoraVideoSession';
 import { sessionService } from '@/services/apiService';
 
+class SessionErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, errorMessage: '' };
+  }
+
+  static getDerivedStateFromError(error) {
+    return {
+      hasError: true,
+      errorMessage: error?.message || 'An unexpected error occurred during the session.'
+    };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error('SessionErrorBoundary caught error:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-gray-900 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl p-6 max-w-md w-full text-center shadow-lg">
+            <h2 className="text-lg font-bold text-gray-900 mb-2">Session Interrupted</h2>
+            <p className="text-sm text-gray-600 mb-4">{this.state.errorMessage}</p>
+            <div className="flex gap-3 justify-center">
+              <button
+                onClick={() => window.location.reload()}
+                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 text-sm font-medium"
+              >
+                Rejoin Session
+              </button>
+              <button
+                onClick={() => this.props.onBack?.()}
+                className="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300 text-sm font-medium"
+              >
+                Back to Dashboard
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function SessionPage() {
   const params = useParams();
   const router = useRouter();
@@ -25,7 +71,10 @@ export default function SessionPage() {
         
         setSession(sessionData);
       } catch (err) {
-        setError(err.error || err.message || 'Failed to load session');
+        const msg = typeof err === 'string'
+          ? err
+          : (typeof err?.error === 'string' ? err.error : err?.message) || 'Failed to load session';
+        setError(msg);
       } finally {
         setLoading(false);
       }
@@ -87,15 +136,17 @@ export default function SessionPage() {
   const teacherId = session.teacher_id || session.TeacherID || session.teacher?.id;
 
   return (
-    <AgoraVideoSession 
-      sessionId={sessionId}
-      channelName={session.channelName || session.channel_name || session.ChannelName}
-      courseId={session.courseId || session.course_id || session.CourseID}
-      userRole="teacher"
-      teacherName={teacherName}
-      teacherId={teacherId}
-      onLeave={handleLeaveSession}
-      sessionTitle={session.title || session.Title}
-    />
+    <SessionErrorBoundary onBack={handleLeaveSession}>
+      <AgoraVideoSession 
+        sessionId={sessionId}
+        channelName={session.channelName || session.channel_name || session.ChannelName}
+        courseId={session.courseId || session.course_id || session.CourseID}
+        userRole="teacher"
+        teacherName={teacherName}
+        teacherId={teacherId}
+        onLeave={handleLeaveSession}
+        sessionTitle={session.title || session.Title}
+      />
+    </SessionErrorBoundary>
   );
 }

@@ -76,6 +76,7 @@ const SimpleWhiteboard = ({
         canvas.width = width;
         canvas.height = height;
         const ctx = canvas.getContext('2d');
+        if (!ctx) return;
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
         contextRef.current = ctx;
@@ -211,6 +212,7 @@ const SimpleWhiteboard = ({
     isDrawingRef.current = true;
 
     const { x, y, width, height } = coords;
+    if (!width || !height) return;
     ctx.beginPath();
     ctx.moveTo(x, y);
     ctx.strokeStyle = colorRef.current;
@@ -235,6 +237,7 @@ const SimpleWhiteboard = ({
     if (!ctx) return;
 
     const { x, y, width, height } = coords;
+    if (!width || !height) return;
     ctx.lineTo(x, y);
     ctx.stroke();
 
@@ -297,7 +300,7 @@ const SimpleWhiteboard = ({
             {isHost ? 'Interactive Whiteboard' : "Teacher's Whiteboard"}
           </h3>
           <span className="text-xs text-gray-500">
-            {roomUUID ? `Room: ${roomUUID.substring(0, 8)}...` : 'Live'}
+            {roomUUID ? `Room: ${String(roomUUID).substring(0, 8)}...` : 'Live'}
           </span>
           {!isHost && (
             <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded font-medium flex items-center gap-1">

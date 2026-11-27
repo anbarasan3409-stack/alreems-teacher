@@ -1,5 +1,18 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  async headers() {
+    return [
+      {
+        source: '/:path*',
+        headers: [
+          {
+            key: 'Permissions-Policy',
+            value: 'camera=(self), microphone=(self), display-capture=(self)',
+          },
+        ],
+      },
+    ];
+  },
   webpack: (config, { isServer }) => {
     // Completely externalize whiteboard SDK on server
     if (isServer) {

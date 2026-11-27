@@ -809,52 +809,56 @@ const AgoraVideoSession = ({
 
   // Student Remote Control Functions
   const handleToggleStudentAudio = async (targetUid, hasAudio) => {
-    if (!hasAudio) return;
     try {
+      const action = hasAudio ? 'mute_audio' : 'unmute_audio';
       await broadcastStreamMsg({
         type: 'teacher_control',
-        action: 'mute_audio',
+        action,
         targetUid: targetUid
       });
 
-      setRemoteUsers(prev => {
-        const next = new Map(prev);
-        const user = next.get(targetUid) || next.get(Number(targetUid)) || next.get(String(targetUid));
-        if (user) {
-          user.hasAudio = false;
-          if (user.audioTrack) {
-            try { user.audioTrack.stop(); } catch (e) {}
+      if (hasAudio) {
+        setRemoteUsers(prev => {
+          const next = new Map(prev);
+          const user = next.get(targetUid) || next.get(Number(targetUid)) || next.get(String(targetUid));
+          if (user) {
+            user.hasAudio = false;
+            if (user.audioTrack) {
+              try { user.audioTrack.stop(); } catch (e) {}
+            }
           }
-        }
-        return next;
-      });
+          return next;
+        });
+      }
     } catch (err) {
-      console.error('Failed to mute student audio:', err);
+      console.error('Failed to toggle student audio:', err);
     }
   };
 
   const handleToggleStudentVideo = async (targetUid, hasVideo) => {
-    if (!hasVideo) return;
     try {
+      const action = hasVideo ? 'mute_video' : 'unmute_video';
       await broadcastStreamMsg({
         type: 'teacher_control',
-        action: 'mute_video',
+        action,
         targetUid: targetUid
       });
 
-      setRemoteUsers(prev => {
-        const next = new Map(prev);
-        const user = next.get(targetUid) || next.get(Number(targetUid)) || next.get(String(targetUid));
-        if (user) {
-          user.hasVideo = false;
-          if (user.videoTrack) {
-            try { user.videoTrack.stop(); } catch (e) {}
+      if (hasVideo) {
+        setRemoteUsers(prev => {
+          const next = new Map(prev);
+          const user = next.get(targetUid) || next.get(Number(targetUid)) || next.get(String(targetUid));
+          if (user) {
+            user.hasVideo = false;
+            if (user.videoTrack) {
+              try { user.videoTrack.stop(); } catch (e) {}
+            }
           }
-        }
-        return next;
-      });
+          return next;
+        });
+      }
     } catch (err) {
-      console.error('Failed to turn off student video:', err);
+      console.error('Failed to toggle student video:', err);
     }
   };
 
@@ -1236,13 +1240,12 @@ const AgoraVideoSession = ({
                     <div className="flex items-center gap-2 pt-1">
                       <button
                         onClick={() => handleToggleStudentAudio(user.uid, user.hasAudio)}
-                        disabled={!user.hasAudio}
-                        className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg text-xs font-semibold transition-all duration-150 ${
+                        className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg text-xs font-semibold transition-all duration-150 cursor-pointer shadow-sm active:scale-95 ${
                           user.hasAudio 
-                            ? 'bg-red-500/20 text-red-300 hover:bg-red-600 hover:text-white border border-red-500/40 cursor-pointer shadow-sm active:scale-95' 
-                            : 'bg-gray-800 text-gray-400 border border-gray-700/60 cursor-not-allowed opacity-80'
+                            ? 'bg-red-500/20 text-red-300 hover:bg-red-600 hover:text-white border border-red-500/40' 
+                            : 'bg-green-500/20 text-green-300 hover:bg-green-600 hover:text-white border border-green-500/40'
                         }`}
-                        title={user.hasAudio ? `Click to mute ${studentName}'s microphone` : `${studentName} is muted`}
+                        title={user.hasAudio ? `Click to mute ${studentName}'s microphone` : `Click to unmute ${studentName}'s microphone`}
                       >
                         {user.hasAudio ? (
                           <>
@@ -1252,20 +1255,19 @@ const AgoraVideoSession = ({
                         ) : (
                           <>
                             <MicOff size={14} className="text-red-400" />
-                            <span>Muted</span>
+                            <span>Unmute Mic</span>
                           </>
                         )}
                       </button>
                       
                       <button
                         onClick={() => handleToggleStudentVideo(user.uid, user.hasVideo)}
-                        disabled={!user.hasVideo}
-                        className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg text-xs font-semibold transition-all duration-150 ${
+                        className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg text-xs font-semibold transition-all duration-150 cursor-pointer shadow-sm active:scale-95 ${
                           user.hasVideo 
-                            ? 'bg-red-500/20 text-red-300 hover:bg-red-600 hover:text-white border border-red-500/40 cursor-pointer shadow-sm active:scale-95' 
-                            : 'bg-gray-800 text-gray-400 border border-gray-700/60 cursor-not-allowed opacity-80'
+                            ? 'bg-red-500/20 text-red-300 hover:bg-red-600 hover:text-white border border-red-500/40' 
+                            : 'bg-green-500/20 text-green-300 hover:bg-green-600 hover:text-white border border-green-500/40'
                         }`}
-                        title={user.hasVideo ? `Click to turn off ${studentName}'s camera` : `${studentName}'s camera is off`}
+                        title={user.hasVideo ? `Click to turn off ${studentName}'s camera` : `Click to turn on ${studentName}'s camera`}
                       >
                         {user.hasVideo ? (
                           <>
@@ -1274,8 +1276,8 @@ const AgoraVideoSession = ({
                           </>
                         ) : (
                           <>
-                            <VideoOff size={14} className="text-gray-400" />
-                            <span>Cam Off</span>
+                            <VideoOff size={14} className="text-gray-300" />
+                            <span>Turn On Cam</span>
                           </>
                         )}
                       </button>

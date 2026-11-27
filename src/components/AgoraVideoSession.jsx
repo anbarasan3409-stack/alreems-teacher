@@ -1260,15 +1260,14 @@ const AgoraVideoSession = ({
               <div className="flex items-center gap-1.5 flex-wrap justify-end">
                 <button
                   onClick={toggleOverallStudentScreenShare}
-                  className={`text-xs px-2 py-1 rounded-md transition-colors flex items-center gap-1 cursor-pointer border ${
+                  className={`p-1.5 rounded-lg transition-colors flex items-center justify-center cursor-pointer border ${
                     studentScreenShareEnabled
                       ? 'bg-green-600/20 hover:bg-green-600/30 text-green-300 border-green-500/40'
                       : 'bg-red-600/30 hover:bg-red-600/50 text-red-300 border-red-500/40'
                   }`}
                   title={studentScreenShareEnabled ? 'Disable screen sharing for all students' : 'Enable screen sharing for all students'}
                 >
-                  <Monitor size={13} />
-                  <span>{studentScreenShareEnabled ? 'Share: On' : 'Share: Off'}</span>
+                  <Monitor size={15} />
                 </button>
                 {remoteStudents.length > 0 && (
                   <button

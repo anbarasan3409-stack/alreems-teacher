@@ -651,16 +651,21 @@ const AgoraVideoSession = ({
         } else if (mediaType === 'audio') {
           existingUser.audioTrack = user.audioTrack;
           existingUser.hasAudio = true;
-          try {
-            user.audioTrack?.play();
-          } catch (audioErr) {
-            console.warn('Audio play failed:', audioErr);
-          }
         }
         
         newMap.set(user.uid, existingUser);
         return newMap;
       });
+
+      if (mediaType === 'audio' && user.audioTrack) {
+        try {
+          if (!user.audioTrack.isPlaying) {
+            user.audioTrack.play();
+          }
+        } catch (audioErr) {
+          console.warn('Audio play failed:', audioErr);
+        }
+      }
 
       if (mediaType === 'video' && user.videoTrack) {
         setTimeout(() => {

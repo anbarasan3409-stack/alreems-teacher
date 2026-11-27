@@ -1366,85 +1366,65 @@ const AgoraVideoSession = ({
                     </div>
                   </div>
                   
-                  {/* Student Info */}
+                  {/* Student Info & Compact Icon Controls */}
                   <div className="p-3 bg-gradient-to-r from-gray-700 to-gray-800">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="text-white font-semibold flex items-center gap-2 overflow-hidden">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-white font-semibold flex items-center gap-2 min-w-0">
                         <div className="w-8 h-8 min-w-[32px] bg-blue-500 rounded-full flex items-center justify-center text-xs font-bold text-white uppercase">
                           {initials}
                         </div>
-                        <span className="truncate max-w-[170px]" title={studentName}>{studentName}</span>
+                        <div className="min-w-0">
+                          <p className="truncate text-sm leading-tight" title={studentName}>{studentName}</p>
+                          <p className="text-[10px] text-gray-400 font-mono">ID: {String(user.uid).slice(-4)}</p>
+                        </div>
                       </div>
-                      <span className="text-xs text-gray-400 font-mono">ID: {String(user.uid).slice(-4)}</span>
-                    </div>
-                    
-                    {/* Media Controls for Teacher */}
-                    <div className="flex items-center gap-2 pt-1">
-                      <button
-                        onClick={() => handleToggleStudentAudio(user.uid, user.hasAudio)}
-                        className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg text-xs font-semibold transition-all duration-150 cursor-pointer shadow-sm active:scale-95 ${
-                          user.hasAudio 
-                            ? 'bg-red-500/20 text-red-300 hover:bg-red-600 hover:text-white border border-red-500/40' 
-                            : 'bg-green-500/20 text-green-300 hover:bg-green-600 hover:text-white border border-green-500/40'
-                        }`}
-                        title={user.hasAudio ? `Click to mute ${studentName}'s microphone` : `Click to unmute ${studentName}'s microphone`}
-                      >
-                        {user.hasAudio ? (
-                          <>
-                            <Mic size={14} className="text-green-400" />
-                            <span>Mute Mic</span>
-                          </>
-                        ) : (
-                          <>
-                            <MicOff size={14} className="text-red-400" />
-                            <span>Unmute Mic</span>
-                          </>
-                        )}
-                      </button>
-                      
-                      <button
-                        onClick={() => handleToggleStudentVideo(user.uid, user.hasVideo)}
-                        className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg text-xs font-semibold transition-all duration-150 cursor-pointer shadow-sm active:scale-95 ${
-                          user.hasVideo 
-                            ? 'bg-red-500/20 text-red-300 hover:bg-red-600 hover:text-white border border-red-500/40' 
-                            : 'bg-green-500/20 text-green-300 hover:bg-green-600 hover:text-white border border-green-500/40'
-                        }`}
-                        title={user.hasVideo ? `Click to turn off ${studentName}'s camera` : `Click to turn on ${studentName}'s camera`}
-                      >
-                        {user.hasVideo ? (
-                          <>
-                            <Video size={14} className="text-green-400" />
-                            <span>Turn Off Cam</span>
-                          </>
-                        ) : (
-                          <>
-                            <VideoOff size={14} className="text-gray-300" />
-                            <span>Turn On Cam</span>
-                          </>
-                        )}
-                      </button>
-                    </div>
-                    <div className="pt-1.5">
-                      {(() => {
-                        const isScreenDisabled =
-                          disabledScreenShareUids.has(user.uid) ||
-                          disabledScreenShareUids.has(Number(user.uid)) ||
-                          disabledScreenShareUids.has(String(user.uid));
-                        return (
-                          <button
-                            onClick={() => handleToggleStudentScreenShare(user.uid)}
-                            className={`w-full flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg text-xs font-semibold transition-all duration-150 cursor-pointer shadow-sm active:scale-95 ${
-                              isScreenDisabled
-                                ? 'bg-green-500/20 text-green-300 hover:bg-green-600 hover:text-white border border-green-500/40'
-                                : 'bg-red-500/20 text-red-300 hover:bg-red-600 hover:text-white border border-red-500/40'
-                            }`}
-                            title={isScreenDisabled ? `Allow ${studentName} to share screen` : `Disable ${studentName}'s screen sharing`}
-                          >
-                            <Monitor size={13} />
-                            <span>{isScreenDisabled ? 'Allow Screen Share' : 'Disable Screen Share'}</span>
-                          </button>
-                        );
-                      })()}
+
+                      {/* Compact Icon Controls */}
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        <button
+                          onClick={() => handleToggleStudentAudio(user.uid, user.hasAudio)}
+                          className={`p-2 rounded-lg transition-all duration-150 cursor-pointer active:scale-95 border ${
+                            user.hasAudio
+                              ? 'bg-green-500/20 text-green-400 hover:bg-red-500/30 hover:text-red-300 border-green-500/40 hover:border-red-500/40'
+                              : 'bg-red-500/20 text-red-400 hover:bg-green-500/30 hover:text-green-300 border-red-500/40 hover:border-green-500/40'
+                          }`}
+                          title={user.hasAudio ? `Mute ${studentName}'s mic` : `Unmute ${studentName}'s mic`}
+                        >
+                          {user.hasAudio ? <Mic size={15} /> : <MicOff size={15} />}
+                        </button>
+
+                        <button
+                          onClick={() => handleToggleStudentVideo(user.uid, user.hasVideo)}
+                          className={`p-2 rounded-lg transition-all duration-150 cursor-pointer active:scale-95 border ${
+                            user.hasVideo
+                              ? 'bg-green-500/20 text-green-400 hover:bg-red-500/30 hover:text-red-300 border-green-500/40 hover:border-red-500/40'
+                              : 'bg-red-500/20 text-red-400 hover:bg-green-500/30 hover:text-green-300 border-red-500/40 hover:border-green-500/40'
+                          }`}
+                          title={user.hasVideo ? `Turn off ${studentName}'s camera` : `Turn on ${studentName}'s camera`}
+                        >
+                          {user.hasVideo ? <Video size={15} /> : <VideoOff size={15} />}
+                        </button>
+
+                        {(() => {
+                          const isScreenDisabled =
+                            disabledScreenShareUids.has(user.uid) ||
+                            disabledScreenShareUids.has(Number(user.uid)) ||
+                            disabledScreenShareUids.has(String(user.uid));
+                          return (
+                            <button
+                              onClick={() => handleToggleStudentScreenShare(user.uid)}
+                              className={`p-2 rounded-lg transition-all duration-150 cursor-pointer active:scale-95 border ${
+                                isScreenDisabled
+                                  ? 'bg-red-500/20 text-red-400 hover:bg-green-500/30 hover:text-green-300 border-red-500/40 hover:border-green-500/40'
+                                  : 'bg-green-500/20 text-green-400 hover:bg-red-500/30 hover:text-red-300 border-green-500/40 hover:border-red-500/40'
+                              }`}
+                              title={isScreenDisabled ? `Allow ${studentName} to share screen` : `Disable ${studentName}'s screen sharing`}
+                            >
+                              <Monitor size={15} />
+                            </button>
+                          );
+                        })()}
+                      </div>
                     </div>
                   </div>
                 </div>

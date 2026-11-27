@@ -17,11 +17,34 @@ export default function Materials() {
   useEffect(() => {
     if (selectedCourse !== 'all') {
       fetchMaterials(selectedCourse);
+    } else if (courses.length > 0) {
+      fetchAllCourseMaterials(courses);
     } else {
-      setMaterials([]); // Or fetch from all courses if endpoint exists
+      setMaterials([]);
       setLoading(false);
     }
-  }, [selectedCourse]);
+  }, [selectedCourse, courses]);
+
+  const fetchAllCourseMaterials = async (courseList) => {
+    try {
+      setLoading(true);
+      const all = await Promise.all(
+        courseList.map(async (c) => {
+          try {
+            const res = await materialService.getMaterialsByCourse(c.id || c.ID);
+            return Array.isArray(res) ? res : [];
+          } catch (e) {
+            return [];
+          }
+        })
+      );
+      setMaterials(all.flat());
+    } catch (error) {
+      setMaterials([]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const fetchCourses = async () => {
     try {

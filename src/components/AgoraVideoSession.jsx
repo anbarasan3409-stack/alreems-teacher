@@ -108,6 +108,10 @@ const AgoraVideoSession = ({
   // Student screen share controls
   const [studentScreenShareEnabled, setStudentScreenShareEnabled] = useState(true);
   const [disabledScreenShareUids, setDisabledScreenShareUids] = useState(new Set());
+  const [focusedScreenShareUid, setFocusedScreenShareUid] = useState(null);
+  const focusedScreenShareUidRef = useRef(null);
+  focusedScreenShareUidRef.current = focusedScreenShareUid;
+  const centerScreenShareRef = useRef(null);
   const studentScreenShareEnabledRef = useRef(true);
   studentScreenShareEnabledRef.current = studentScreenShareEnabled;
   
@@ -148,9 +152,9 @@ const AgoraVideoSession = ({
     }
   }, [localVideoTrack, videoReady]);
 
-  // Ensure video element is ready when component mounts
+  // Ensure video element is ready and plays whenever camera is turned ON or spotlight changes
   useEffect(() => {
-    if (localVideoRef.current && isJoined && localVideoTrack) {
+    if (localVideoRef.current && isJoined && localVideoTrack && isVideoEnabled) {
       try {
         const videoElement = localVideoRef.current;
         videoElement.muted = true;
@@ -168,11 +172,43 @@ const AgoraVideoSession = ({
                   Promise.resolve(localVideoTrack.play(localVideoRef.current, { mirror: !isScreenSharingRef.current })).catch(() => {});
                 }
               } catch (e) {}
-            }, 1000);
+            }, 300);
           });
       } catch (error) {}
     }
-  }, [isJoined, localVideoTrack]);
+  }, [isJoined, localVideoTrack, isVideoEnabled, focusedScreenShareUid]);
+
+  // Play focused student's screen share in the center stage, and restore to sidebar card when unfocused
+  useEffect(() => {
+    if (focusedScreenShareUid) {
+      const target =
+        remoteUsers.get(focusedScreenShareUid) ||
+        remoteUsers.get(Number(focusedScreenShareUid)) ||
+        Array.from(remoteUsers.values()).find(u => String(u.uid) === String(focusedScreenShareUid));
+
+      if (target?.hasVideo && target?.videoTrack && centerScreenShareRef.current) {
+        try {
+          centerScreenShareRef.current.innerHTML = '';
+          target.videoTrack.play(centerScreenShareRef.current, { mirror: false });
+        } catch (err) {
+          console.warn('Center screen share play failed:', err);
+        }
+      }
+    } else {
+      // Replay any active remote student video tracks back into their sidebar containers
+      remoteUsers.forEach((user) => {
+        if (user?.hasVideo && user?.videoTrack) {
+          const container = document.getElementById(`remote-video-${user.uid}`);
+          if (container) {
+            try {
+              container.innerHTML = '';
+              user.videoTrack.play(container, { mirror: false });
+            } catch (e) {}
+          }
+        }
+      });
+    }
+  }, [focusedScreenShareUid, remoteUsers]);
 
   // Fetch session attendees/students for name mapping
   useEffect(() => {
@@ -387,6 +423,16 @@ const AgoraVideoSession = ({
               });
               if (chatToastTimerRef.current) clearTimeout(chatToastTimerRef.current);
               chatToastTimerRef.current = setTimeout(() => setChatToast(null), 4000);
+            }
+          }
+
+          // Student screen share focus notification
+          if (info?.type === 'student_screen_share') {
+            const targetUid = info.uid || senderUid;
+            if (info.active) {
+              setFocusedScreenShareUid(targetUid);
+            } else if (String(focusedScreenShareUidRef.current) === String(targetUid)) {
+              setFocusedScreenShareUid(null);
             }
           }
 
@@ -619,10 +665,15 @@ const AgoraVideoSession = ({
       if (mediaType === 'video' && user.videoTrack) {
         setTimeout(() => {
           try {
-            const container = document.getElementById(`remote-video-${user.uid}`);
-            if (container && user.videoTrack) {
-              container.innerHTML = '';
-              user.videoTrack.play(container, { mirror: false });
+            if (String(focusedScreenShareUidRef.current) === String(user.uid) && centerScreenShareRef.current) {
+              centerScreenShareRef.current.innerHTML = '';
+              user.videoTrack.play(centerScreenShareRef.current, { mirror: false });
+            } else {
+              const container = document.getElementById(`remote-video-${user.uid}`);
+              if (container && user.videoTrack) {
+                container.innerHTML = '';
+                user.videoTrack.play(container, { mirror: false });
+              }
             }
           } catch (videoErr) {
             console.warn('Remote video play failed:', videoErr);
@@ -633,6 +684,9 @@ const AgoraVideoSession = ({
   };
 
   const handleUserUnpublished = (user, mediaType) => {
+    if (mediaType === 'video' && String(focusedScreenShareUidRef.current) === String(user.uid)) {
+      setFocusedScreenShareUid(null);
+    }
     setRemoteUsers(prev => {
       const newMap = new Map(prev);
       const existingUser = newMap.get(user.uid);
@@ -664,6 +718,9 @@ const AgoraVideoSession = ({
   };
 
   const handleUserLeft = (user) => {
+    if (String(focusedScreenShareUidRef.current) === String(user.uid)) {
+      setFocusedScreenShareUid(null);
+    }
     setRemoteUsers(prev => {
       const newMap = new Map(prev);
       if (newMap.has(user.uid)) {
@@ -683,6 +740,14 @@ const AgoraVideoSession = ({
         } else {
           await localVideoTrack.setEnabled(true);
           setIsVideoEnabled(true);
+          if (localVideoRef.current) {
+            const videoElement = localVideoRef.current;
+            videoElement.muted = true;
+            videoElement.autoplay = true;
+            videoElement.playsInline = true;
+            await Promise.resolve(localVideoTrack.play(videoElement, { mirror: !isScreenSharingRef.current })).catch(() => {});
+            setVideoReady(true);
+          }
         }
       }
     } catch (err) {
@@ -1186,66 +1251,123 @@ const AgoraVideoSession = ({
             </div>
           )}
 
-          {/* Local Video (Teacher) */}
-          <div className="w-full h-full relative bg-gray-900">
-            <video
-              ref={localVideoRef}
-              className="w-full h-full object-cover cursor-pointer"
-              style={{ 
-                background: isVideoEnabled ? 'transparent' : '#374151',
-                display: isVideoEnabled ? 'block' : 'none',
-                visibility: 'visible'
-              }}
-              muted
-              playsInline
-              autoPlay
-              controls={false}
-              onClick={forceVideoPlayback}
-            />
-            
-            {/* Camera off overlay */}
-            {!isVideoEnabled && (
-              <div 
-                className="absolute inset-0 flex items-center justify-center text-white bg-gray-800 cursor-pointer"
-                onClick={forceVideoPlayback}
-              >
-                <div className="text-center">
-                  <div className="w-24 h-24 bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <Users size={48} className="text-gray-400" />
-                  </div>
-                  <p className="text-lg font-medium mb-2">Your Camera is Off</p>
-                  <p className="text-sm text-gray-400 mb-4">Click "Start Video" below to turn on your camera</p>
-                  {localVideoTrack && (
-                    <button
+          {/* Center Stage: Focused Student Screen Share OR Teacher Video */}
+          {(() => {
+            const focusedStudent = focusedScreenShareUid
+              ? remoteStudents.find(u => String(u.uid) === String(focusedScreenShareUid))
+              : null;
+            const focusedStudentName = focusedStudent
+              ? (studentNames.get(focusedStudent.uid) ||
+                 studentNames.get(Number(focusedStudent.uid)) ||
+                 studentNames.get(String(focusedStudent.uid)) ||
+                 'Student')
+              : 'Student';
+
+            const isShowingStudentScreen = Boolean(focusedStudent && focusedStudent.hasVideo && focusedStudent.videoTrack);
+
+            return (
+              <div className="w-full h-full relative bg-gray-900">
+                {/* Focused Student Screen Share Stage */}
+                {isShowingStudentScreen && (
+                  <>
+                    <div
+                      ref={centerScreenShareRef}
+                      className="w-full h-full bg-black [&>div]:!bg-black [&_video]:!object-contain"
+                    />
+                    <div className="absolute top-6 left-6 flex items-center gap-2 z-10">
+                      <div className="bg-emerald-600/90 backdrop-blur-sm text-white px-4 py-2 rounded-xl shadow-lg flex items-center gap-2">
+                        <Monitor size={16} />
+                        <span className="font-semibold text-sm">{focusedStudentName} — Screen Share</span>
+                      </div>
+                      <button
+                        onClick={() => setFocusedScreenShareUid(null)}
+                        className="bg-gray-800/80 hover:bg-gray-700 text-gray-200 px-3 py-2 rounded-xl text-xs font-medium backdrop-blur-sm border border-gray-600/50 cursor-pointer transition-colors"
+                        title="Return to your camera view"
+                      >
+                        Unpin
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                {/* Local Video (Teacher) — Full stage normally, or bottom-right PiP while viewing student screen share */}
+                <div
+                  className={
+                    isShowingStudentScreen
+                      ? (isVideoEnabled
+                          ? 'absolute bottom-6 right-6 w-52 h-36 rounded-xl overflow-hidden shadow-2xl border-2 border-blue-500/60 bg-gray-900 z-10'
+                          : 'absolute bottom-0 right-0 w-1 h-1 opacity-0 pointer-events-none overflow-hidden')
+                      : 'w-full h-full relative bg-gray-900'
+                  }
+                >
+                  <video
+                    ref={localVideoRef}
+                    className="w-full h-full object-cover cursor-pointer"
+                    style={{
+                      background: isVideoEnabled ? 'transparent' : '#374151',
+                      visibility: 'visible'
+                    }}
+                    muted
+                    playsInline
+                    autoPlay
+                    controls={false}
+                    onClick={forceVideoPlayback}
+                  />
+
+                  {isShowingStudentScreen && isVideoEnabled && (
+                    <div className="absolute bottom-2 left-2 bg-black/60 text-white text-[11px] px-2 py-0.5 rounded font-medium">
+                      You (Host)
+                    </div>
+                  )}
+
+                  {/* Camera off overlay (only on main stage, not on PiP) */}
+                  {!isShowingStudentScreen && !isVideoEnabled && (
+                    <div
+                      className="absolute inset-0 z-10 flex items-center justify-center text-white bg-gray-800 cursor-pointer"
                       onClick={forceVideoPlayback}
-                      className="text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 px-3 py-1 rounded transition-colors"
                     >
-                      Troubleshoot Video
-                    </button>
+                      <div className="text-center">
+                        <div className="w-24 h-24 bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-4">
+                          <Users size={48} className="text-gray-400" />
+                        </div>
+                        <p className="text-lg font-medium mb-2">Your Camera is Off</p>
+                        <p className="text-sm text-gray-400 mb-4">Click "Start Video" below to turn on your camera</p>
+                        {localVideoTrack && (
+                          <button
+                            onClick={forceVideoPlayback}
+                            className="text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 px-3 py-1 rounded transition-colors"
+                          >
+                            Troubleshoot Video
+                          </button>
+                        )}
+                      </div>
+                    </div>
                   )}
                 </div>
-              </div>
-            )}
-            
-            {/* Teacher Badge */}
-            <div className="absolute top-6 left-6 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-4 py-2 rounded-xl shadow-lg backdrop-blur-sm">
-              <span className="font-semibold text-sm">Instructor (Host)</span>
-            </div>
 
-            {/* Teacher Media Status Icons */}
-            <div className="absolute bottom-6 left-6 flex items-center gap-2">
-              <div className={`p-2.5 rounded-xl backdrop-blur-md ${
-                isAudioEnabled ? 'bg-green-500/80 text-white' : 'bg-red-500/80 text-white'
-              }`}>
-                {isAudioEnabled ? <Mic size={18} /> : <MicOff size={18} />}
+                {/* Teacher Badge (normal stage) */}
+                {!isShowingStudentScreen && (
+                  <div className="absolute top-6 left-6 z-10 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-4 py-2 rounded-xl shadow-lg backdrop-blur-sm">
+                    <span className="font-semibold text-sm">Instructor (Host)</span>
+                  </div>
+                )}
+
+                {/* Teacher Media Status Icons */}
+                <div className="absolute bottom-6 left-6 z-10 flex items-center gap-2">
+                  <div className={`p-2.5 rounded-xl backdrop-blur-md ${
+                    isAudioEnabled ? 'bg-green-500/80 text-white' : 'bg-red-500/80 text-white'
+                  }`}>
+                    {isAudioEnabled ? <Mic size={18} /> : <MicOff size={18} />}
+                  </div>
+                  <div className={`p-2.5 rounded-xl backdrop-blur-md ${
+                    isVideoEnabled ? 'bg-green-500/80 text-white' : 'bg-red-500/80 text-white'
+                  }`}>
+                    {isVideoEnabled ? <Video size={18} /> : <VideoOff size={18} />}
+                  </div>
+                </div>
               </div>
-              <div className={`p-2.5 rounded-xl backdrop-blur-md ${
-                isVideoEnabled ? 'bg-green-500/80 text-white' : 'bg-red-500/80 text-white'
-              }`}>
-                {isVideoEnabled ? <Video size={18} /> : <VideoOff size={18} />}
-              </div>
-            </div>
-          </div>
+            );
+          })()}
         </div>
 
         {/* Right Sidebar - Student Participants */}
@@ -1355,13 +1477,22 @@ const AgoraVideoSession = ({
                       style={{ position: 'relative' }}
                     />
                     
-                    {!user.hasVideo && (
+                    {!user.hasVideo ? (
                       <div className="absolute inset-0 flex items-center justify-center text-gray-400 bg-gray-800">
                         <div className="text-center">
                           <div className="w-16 h-16 bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-2">
                             <Users size={32} className="text-gray-500" />
                           </div>
                           <p className="text-xs">Camera off</p>
+                        </div>
+                      </div>
+                    ) : String(focusedScreenShareUid) === String(user.uid) && (
+                      <div className="absolute inset-0 flex items-center justify-center text-emerald-300 bg-gray-800/95">
+                        <div className="text-center">
+                          <div className="w-14 h-14 bg-emerald-600/20 border border-emerald-500/40 rounded-full flex items-center justify-center mx-auto mb-2">
+                            <Monitor size={24} className="text-emerald-400" />
+                          </div>
+                          <p className="text-xs font-medium">Sharing on main screen</p>
                         </div>
                       </div>
                     )}

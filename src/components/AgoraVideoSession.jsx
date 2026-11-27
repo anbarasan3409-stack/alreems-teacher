@@ -13,7 +13,9 @@ import {
   VolumeX,
   Clock,
   PenTool,
-  Shield
+  Shield,
+  Send,
+  X
 } from 'lucide-react';
 import { COLORS } from '@/theme/themeConstants';
 import dynamic from 'next/dynamic';
@@ -87,6 +89,17 @@ const AgoraVideoSession = ({
   const whiteboardRoomUUIDRef = useRef(null);
   showWhiteboardRef.current = showWhiteboard;
   whiteboardRoomUUIDRef.current = whiteboardRoomUUID;
+
+  // Chat states
+  const [showChat, setShowChat] = useState(false);
+  const [chatEnabled, setChatEnabled] = useState(true);
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatInput, setChatInput] = useState('');
+  const [unreadChatCount, setUnreadChatCount] = useState(0);
+  const showChatRef = useRef(false);
+  const chatEnabledRef = useRef(true);
+  showChatRef.current = showChat;
+  chatEnabledRef.current = chatEnabled;
   
   // Force video playback on user interaction
   const forceVideoPlayback = async () => {
@@ -321,7 +334,7 @@ const AgoraVideoSession = ({
           const text = typeof data === 'string' ? data : new TextDecoder().decode(data);
           const info = JSON.parse(text);
 
-          // Role discovery query from peer: answer with teacher role
+          // Role discovery query from peer: answer with teacher role + current chat state
           if (info?.type === 'discover_roles' || info?.type === 'role_query') {
             broadcastStreamMsg({
               type: 'user_role',
@@ -330,6 +343,30 @@ const AgoraVideoSession = ({
               name: propTeacherName || resolvedTeacherName || 'Instructor',
               teacherId: propTeacherId || resolvedTeacherId
             });
+            broadcastStreamMsg({
+              type: 'chat_toggle',
+              enabled: chatEnabledRef.current
+            });
+          }
+
+          // In-call chat message from peer
+          if (info?.type === 'chat_msg' && info?.text) {
+            if (chatEnabledRef.current || info.senderRole === 'teacher' || info.senderRole === 'admin') {
+              setChatMessages(prev => [
+                ...prev.slice(-199),
+                {
+                  id: info.id || `${senderUid}-${Date.now()}`,
+                  senderName: info.senderName || 'Student',
+                  senderRole: info.senderRole || 'student',
+                  text: String(info.text),
+                  timestamp: info.timestamp || Date.now(),
+                  isSelf: false
+                }
+              ]);
+              if (!showChatRef.current) {
+                setUnreadChatCount(c => c + 1);
+              }
+            }
           }
 
           // User role declaration
@@ -884,6 +921,35 @@ const AgoraVideoSession = ({
     }
   };
 
+  const toggleChatEnabled = async () => {
+    const next = !chatEnabled;
+    setChatEnabled(next);
+    chatEnabledRef.current = next;
+    await broadcastStreamMsg({
+      type: 'chat_toggle',
+      enabled: next
+    });
+  };
+
+  const sendChatMessage = async (e) => {
+    e?.preventDefault();
+    const trimmed = chatInput.trim();
+    if (!trimmed) return;
+
+    const msgObj = {
+      type: 'chat_msg',
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      senderName: propTeacherName || resolvedTeacherName || 'Instructor',
+      senderRole: 'teacher',
+      text: trimmed,
+      timestamp: Date.now()
+    };
+
+    setChatMessages(prev => [...prev.slice(-199), { ...msgObj, isSelf: true }]);
+    setChatInput('');
+    await broadcastStreamMsg(msgObj);
+  };
+
   const leaveSession = async () => {
     try {
       if (sessionId) {
@@ -1376,6 +1442,32 @@ const AgoraVideoSession = ({
             </button>
 
             <button
+              onClick={() => {
+                setShowChat(prev => {
+                  const next = !prev;
+                  if (next) setUnreadChatCount(0);
+                  return next;
+                });
+              }}
+              className={`group relative p-4 rounded-xl transition-all duration-200 ${
+                showChat 
+                  ? 'bg-blue-600 hover:bg-blue-700' 
+                  : 'bg-gray-700 hover:bg-gray-600'
+              }`}
+              title={showChat ? 'Hide chat' : 'Open chat'}
+            >
+              <MessageSquare size={22} className="text-white" />
+              {unreadChatCount > 0 && !showChat && (
+                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center">
+                  {unreadChatCount > 9 ? '9+' : unreadChatCount}
+                </span>
+              )}
+              <div className="absolute -top-8 left-1/2 transform -translate-x-1/2 bg-gray-900 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                {showChat ? 'Hide chat' : 'Chat'}
+              </div>
+            </button>
+
+            <button
               onClick={leaveSession}
               className="group relative flex items-center gap-2 px-6 py-4 bg-red-600 text-white rounded-xl hover:bg-red-700 transition-all duration-200 font-semibold shadow-lg hover:shadow-xl"
             >
@@ -1390,6 +1482,83 @@ const AgoraVideoSession = ({
           </div>
         </div>
       </div>
+
+      {/* In-Call Chat Drawer */}
+      {showChat && (
+        <div className="fixed bottom-24 right-6 w-80 sm:w-96 h-[430px] bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl z-40 flex flex-col overflow-hidden">
+          <div className="px-4 py-3 bg-gray-900 border-b border-gray-700 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <MessageSquare size={18} className="text-blue-400" />
+              <h3 className="text-white font-semibold text-sm">Class Chat</h3>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={toggleChatEnabled}
+                className={`text-xs px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
+                  chatEnabled
+                    ? 'bg-green-600/20 text-green-300 border border-green-500/40 hover:bg-green-600/30'
+                    : 'bg-red-600/20 text-red-300 border border-red-500/40 hover:bg-red-600/30'
+                }`}
+                title={chatEnabled ? 'Click to disable student chat' : 'Click to enable student chat'}
+              >
+                {chatEnabled ? 'Chat: On' : 'Chat: Off'}
+              </button>
+              <button
+                onClick={() => setShowChat(false)}
+                className="text-gray-400 hover:text-white p-1 rounded"
+              >
+                <X size={16} />
+              </button>
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
+            {chatMessages.length === 0 ? (
+              <div className="text-center text-gray-500 text-xs py-12">
+                No messages yet. Say hello to the class!
+              </div>
+            ) : (
+              chatMessages.map(m => (
+                <div
+                  key={m.id}
+                  className={`flex flex-col ${m.isSelf ? 'items-end' : 'items-start'}`}
+                >
+                  <span className="text-[11px] text-gray-400 mb-0.5 px-1">
+                    {m.isSelf ? 'You' : m.senderName}
+                    {m.senderRole === 'teacher' && !m.isSelf ? ' (Instructor)' : ''}
+                  </span>
+                  <div
+                    className={`max-w-[85%] rounded-xl px-3 py-2 text-sm break-words ${
+                      m.isSelf
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-gray-700 text-gray-100'
+                    }`}
+                  >
+                    {m.text}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          <form onSubmit={sendChatMessage} className="p-3 bg-gray-900 border-t border-gray-700 flex items-center gap-2">
+            <input
+              type="text"
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              placeholder="Send a message to class..."
+              className="flex-1 bg-gray-800 text-white text-sm rounded-xl px-3 py-2 border border-gray-700 focus:outline-none focus:border-blue-500"
+            />
+            <button
+              type="submit"
+              disabled={!chatInput.trim()}
+              className="p-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white rounded-xl transition-colors"
+            >
+              <Send size={16} />
+            </button>
+          </form>
+        </div>
+      )}
     </div>
   );
 };

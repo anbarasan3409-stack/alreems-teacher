@@ -1097,6 +1097,11 @@ const AgoraVideoSession = ({
 
   const leaveSession = async () => {
     try {
+      // Notify connected students/admins that the instructor ended the session so attendance concludes immediately
+      try {
+        await broadcastStreamMsg({ type: 'session_ended', reason: 'instructor_left' });
+      } catch (e) {}
+
       if (sessionId) {
         try {
           await sessionService.updateSession(sessionId, { status: 'completed' });

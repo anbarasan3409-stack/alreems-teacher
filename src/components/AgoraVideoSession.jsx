@@ -100,6 +100,12 @@ const AgoraVideoSession = ({
   const chatEnabledRef = useRef(true);
   showChatRef.current = showChat;
   chatEnabledRef.current = chatEnabled;
+
+  // Student screen share controls
+  const [studentScreenShareEnabled, setStudentScreenShareEnabled] = useState(true);
+  const [disabledScreenShareUids, setDisabledScreenShareUids] = useState(new Set());
+  const studentScreenShareEnabledRef = useRef(true);
+  studentScreenShareEnabledRef.current = studentScreenShareEnabled;
   
   // Force video playback on user interaction
   const forceVideoPlayback = async () => {
@@ -346,6 +352,10 @@ const AgoraVideoSession = ({
             broadcastStreamMsg({
               type: 'chat_toggle',
               enabled: chatEnabledRef.current
+            });
+            broadcastStreamMsg({
+              type: 'screen_share_toggle',
+              enabled: studentScreenShareEnabledRef.current
             });
           }
 
@@ -921,6 +931,44 @@ const AgoraVideoSession = ({
     }
   };
 
+  const toggleOverallStudentScreenShare = async () => {
+    const next = !studentScreenShareEnabled;
+    setStudentScreenShareEnabled(next);
+    studentScreenShareEnabledRef.current = next;
+    await broadcastStreamMsg({
+      type: 'screen_share_toggle',
+      enabled: next
+    });
+  };
+
+  const handleToggleStudentScreenShare = async (targetUid) => {
+    const isCurrentlyDisabled =
+      disabledScreenShareUids.has(targetUid) ||
+      disabledScreenShareUids.has(Number(targetUid)) ||
+      disabledScreenShareUids.has(String(targetUid));
+    const action = isCurrentlyDisabled ? 'enable_screen_share' : 'disable_screen_share';
+
+    await broadcastStreamMsg({
+      type: 'teacher_control',
+      action,
+      targetUid
+    });
+
+    setDisabledScreenShareUids(prev => {
+      const next = new Set(prev);
+      if (isCurrentlyDisabled) {
+        next.delete(targetUid);
+        next.delete(Number(targetUid));
+        next.delete(String(targetUid));
+      } else {
+        next.add(targetUid);
+        next.add(Number(targetUid));
+        next.add(String(targetUid));
+      }
+      return next;
+    });
+  };
+
   const toggleChatEnabled = async () => {
     const next = !chatEnabled;
     setChatEnabled(next);
@@ -1182,7 +1230,19 @@ const AgoraVideoSession = ({
                 <Users size={20} className="text-blue-400" />
                 Participants
               </h3>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                <button
+                  onClick={toggleOverallStudentScreenShare}
+                  className={`text-xs px-2 py-1 rounded-md transition-colors flex items-center gap-1 cursor-pointer border ${
+                    studentScreenShareEnabled
+                      ? 'bg-green-600/20 hover:bg-green-600/30 text-green-300 border-green-500/40'
+                      : 'bg-red-600/30 hover:bg-red-600/50 text-red-300 border-red-500/40'
+                  }`}
+                  title={studentScreenShareEnabled ? 'Disable screen sharing for all students' : 'Enable screen sharing for all students'}
+                >
+                  <Monitor size={13} />
+                  <span>{studentScreenShareEnabled ? 'Share: On' : 'Share: Off'}</span>
+                </button>
                 {remoteStudents.length > 0 && (
                   <button
                     onClick={handleMuteAllStudents}
@@ -1347,6 +1407,28 @@ const AgoraVideoSession = ({
                           </>
                         )}
                       </button>
+                    </div>
+                    <div className="pt-1.5">
+                      {(() => {
+                        const isScreenDisabled =
+                          disabledScreenShareUids.has(user.uid) ||
+                          disabledScreenShareUids.has(Number(user.uid)) ||
+                          disabledScreenShareUids.has(String(user.uid));
+                        return (
+                          <button
+                            onClick={() => handleToggleStudentScreenShare(user.uid)}
+                            className={`w-full flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg text-xs font-semibold transition-all duration-150 cursor-pointer shadow-sm active:scale-95 ${
+                              isScreenDisabled
+                                ? 'bg-green-500/20 text-green-300 hover:bg-green-600 hover:text-white border border-green-500/40'
+                                : 'bg-red-500/20 text-red-300 hover:bg-red-600 hover:text-white border border-red-500/40'
+                            }`}
+                            title={isScreenDisabled ? `Allow ${studentName} to share screen` : `Disable ${studentName}'s screen sharing`}
+                          >
+                            <Monitor size={13} />
+                            <span>{isScreenDisabled ? 'Allow Screen Share' : 'Disable Screen Share'}</span>
+                          </button>
+                        );
+                      })()}
                     </div>
                   </div>
                 </div>

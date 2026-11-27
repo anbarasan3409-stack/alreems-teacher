@@ -74,8 +74,8 @@ const AgoraVideoSession = ({
   const allWbStrokesRef = useRef([]);
   
   // Control states
-  const [isVideoEnabled, setIsVideoEnabled] = useState(true); // Auto-enabled on join
-  const [isAudioEnabled, setIsAudioEnabled] = useState(true); // Auto-enabled on join
+  const [isVideoEnabled, setIsVideoEnabled] = useState(false); // Default OFF
+  const [isAudioEnabled, setIsAudioEnabled] = useState(false); // Default OFF
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [volume, setVolume] = useState(50);
   const [videoReady, setVideoReady] = useState(false);
@@ -96,10 +96,14 @@ const AgoraVideoSession = ({
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState('');
   const [unreadChatCount, setUnreadChatCount] = useState(0);
+  const [chatToast, setChatToast] = useState(null);
+  const chatToastTimerRef = useRef(null);
   const showChatRef = useRef(false);
   const chatEnabledRef = useRef(true);
   showChatRef.current = showChat;
   chatEnabledRef.current = chatEnabled;
+  const isScreenSharingRef = useRef(false);
+  isScreenSharingRef.current = isScreenSharing;
 
   // Student screen share controls
   const [studentScreenShareEnabled, setStudentScreenShareEnabled] = useState(true);
@@ -116,7 +120,7 @@ const AgoraVideoSession = ({
         videoElement.autoplay = true;
         videoElement.playsInline = true;
 
-        await Promise.resolve(localVideoTrack.play(videoElement));
+        await Promise.resolve(localVideoTrack.play(videoElement, { mirror: !isScreenSharingRef.current }));
         setVideoReady(true);
       } catch (error) {}
     }
@@ -133,7 +137,7 @@ const AgoraVideoSession = ({
             videoElement.autoplay = true;
             videoElement.playsInline = true;
             
-            await Promise.resolve(localVideoTrack.play(videoElement));
+            await Promise.resolve(localVideoTrack.play(videoElement, { mirror: !isScreenSharingRef.current }));
             setVideoReady(true);
           }
         } catch (error) {}
@@ -153,7 +157,7 @@ const AgoraVideoSession = ({
         videoElement.autoplay = true;
         videoElement.playsInline = true;
 
-        Promise.resolve(localVideoTrack.play(videoElement))
+        Promise.resolve(localVideoTrack.play(videoElement, { mirror: !isScreenSharingRef.current }))
           .then(() => {
             setVideoReady(true);
           })
@@ -161,7 +165,7 @@ const AgoraVideoSession = ({
             setTimeout(() => {
               try {
                 if (localVideoRef.current && localVideoTrack) {
-                  Promise.resolve(localVideoTrack.play(localVideoRef.current)).catch(() => {});
+                  Promise.resolve(localVideoTrack.play(localVideoRef.current, { mirror: !isScreenSharingRef.current })).catch(() => {});
                 }
               } catch (e) {}
             }, 1000);
@@ -376,6 +380,13 @@ const AgoraVideoSession = ({
               if (!showChatRef.current) {
                 setUnreadChatCount(c => c + 1);
               }
+              setChatToast({
+                senderName: info.senderName || 'Student',
+                senderRole: info.senderRole || 'student',
+                text: String(info.text)
+              });
+              if (chatToastTimerRef.current) clearTimeout(chatToastTimerRef.current);
+              chatToastTimerRef.current = setTimeout(() => setChatToast(null), 4000);
             }
           }
 
@@ -523,13 +534,21 @@ const AgoraVideoSession = ({
             }
           }),
           AgoraRTC.createMicrophoneAudioTrack({
-            encoderConfig: "music_standard",
+            encoderConfig: "speech_standard",
+            AEC: true,
+            ANS: true,
+            AGC: true,
           })
         ]);
       } catch (bothErr) {
         // Fallback: try audio and video separately so one missing device doesn't block the other
         try {
-          audioTrack = await AgoraRTC.createMicrophoneAudioTrack({ encoderConfig: "music_standard" });
+          audioTrack = await AgoraRTC.createMicrophoneAudioTrack({
+            encoderConfig: "speech_standard",
+            AEC: true,
+            ANS: true,
+            AGC: true,
+          });
         } catch (aErr) {
           console.warn('Microphone access failed:', aErr);
         }
@@ -548,13 +567,21 @@ const AgoraVideoSession = ({
       cameraTrackRef.current = videoTrack;
       setLocalVideoTrack(videoTrack);
       setLocalAudioTrack(audioTrack);
-      setIsVideoEnabled(Boolean(videoTrack));
-      setIsAudioEnabled(Boolean(audioTrack));
 
       const tracksToPublish = [videoTrack, audioTrack].filter(Boolean);
       if (tracksToPublish.length > 0) {
         await agoraClient.publish(tracksToPublish);
       }
+
+      // Default teacher mic and camera OFF on join (tracks stay published/ready without re-prompting)
+      if (videoTrack) {
+        await videoTrack.setEnabled(false);
+      }
+      if (audioTrack) {
+        await audioTrack.setEnabled(false);
+      }
+      setIsVideoEnabled(false);
+      setIsAudioEnabled(false);
     } catch (error) {
       setError(error?.message || 'Failed to access camera or microphone.');
     }
@@ -595,7 +622,7 @@ const AgoraVideoSession = ({
             const container = document.getElementById(`remote-video-${user.uid}`);
             if (container && user.videoTrack) {
               container.innerHTML = '';
-              user.videoTrack.play(container);
+              user.videoTrack.play(container, { mirror: false });
             }
           } catch (videoErr) {
             console.warn('Remote video play failed:', videoErr);
@@ -702,7 +729,7 @@ const AgoraVideoSession = ({
       screenTrackRef.current = screenTrack;
       
       if (localVideoRef.current) {
-        screenTrack.play(localVideoRef.current);
+        screenTrack.play(localVideoRef.current, { mirror: false });
       }
       
       setLocalVideoTrack(screenTrack);
@@ -1233,15 +1260,14 @@ const AgoraVideoSession = ({
               <div className="flex items-center gap-1.5 flex-wrap justify-end">
                 <button
                   onClick={toggleOverallStudentScreenShare}
-                  className={`text-xs px-2 py-1 rounded-md transition-colors flex items-center gap-1 cursor-pointer border ${
+                  className={`p-1.5 rounded-lg transition-colors flex items-center justify-center cursor-pointer border ${
                     studentScreenShareEnabled
                       ? 'bg-green-600/20 hover:bg-green-600/30 text-green-300 border-green-500/40'
                       : 'bg-red-600/30 hover:bg-red-600/50 text-red-300 border-red-500/40'
                   }`}
                   title={studentScreenShareEnabled ? 'Disable screen sharing for all students' : 'Enable screen sharing for all students'}
                 >
-                  <Monitor size={13} />
-                  <span>{studentScreenShareEnabled ? 'Share: On' : 'Share: Off'}</span>
+                  <Monitor size={15} />
                 </button>
                 {remoteStudents.length > 0 && (
                   <button
@@ -1350,85 +1376,65 @@ const AgoraVideoSession = ({
                     </div>
                   </div>
                   
-                  {/* Student Info */}
+                  {/* Student Info & Compact Icon Controls */}
                   <div className="p-3 bg-gradient-to-r from-gray-700 to-gray-800">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="text-white font-semibold flex items-center gap-2 overflow-hidden">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-white font-semibold flex items-center gap-2 min-w-0">
                         <div className="w-8 h-8 min-w-[32px] bg-blue-500 rounded-full flex items-center justify-center text-xs font-bold text-white uppercase">
                           {initials}
                         </div>
-                        <span className="truncate max-w-[170px]" title={studentName}>{studentName}</span>
+                        <div className="min-w-0">
+                          <p className="truncate text-sm leading-tight" title={studentName}>{studentName}</p>
+                          <p className="text-[10px] text-gray-400 font-mono">ID: {String(user.uid).slice(-4)}</p>
+                        </div>
                       </div>
-                      <span className="text-xs text-gray-400 font-mono">ID: {String(user.uid).slice(-4)}</span>
-                    </div>
-                    
-                    {/* Media Controls for Teacher */}
-                    <div className="flex items-center gap-2 pt-1">
-                      <button
-                        onClick={() => handleToggleStudentAudio(user.uid, user.hasAudio)}
-                        className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg text-xs font-semibold transition-all duration-150 cursor-pointer shadow-sm active:scale-95 ${
-                          user.hasAudio 
-                            ? 'bg-red-500/20 text-red-300 hover:bg-red-600 hover:text-white border border-red-500/40' 
-                            : 'bg-green-500/20 text-green-300 hover:bg-green-600 hover:text-white border border-green-500/40'
-                        }`}
-                        title={user.hasAudio ? `Click to mute ${studentName}'s microphone` : `Click to unmute ${studentName}'s microphone`}
-                      >
-                        {user.hasAudio ? (
-                          <>
-                            <Mic size={14} className="text-green-400" />
-                            <span>Mute Mic</span>
-                          </>
-                        ) : (
-                          <>
-                            <MicOff size={14} className="text-red-400" />
-                            <span>Unmute Mic</span>
-                          </>
-                        )}
-                      </button>
-                      
-                      <button
-                        onClick={() => handleToggleStudentVideo(user.uid, user.hasVideo)}
-                        className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg text-xs font-semibold transition-all duration-150 cursor-pointer shadow-sm active:scale-95 ${
-                          user.hasVideo 
-                            ? 'bg-red-500/20 text-red-300 hover:bg-red-600 hover:text-white border border-red-500/40' 
-                            : 'bg-green-500/20 text-green-300 hover:bg-green-600 hover:text-white border border-green-500/40'
-                        }`}
-                        title={user.hasVideo ? `Click to turn off ${studentName}'s camera` : `Click to turn on ${studentName}'s camera`}
-                      >
-                        {user.hasVideo ? (
-                          <>
-                            <Video size={14} className="text-green-400" />
-                            <span>Turn Off Cam</span>
-                          </>
-                        ) : (
-                          <>
-                            <VideoOff size={14} className="text-gray-300" />
-                            <span>Turn On Cam</span>
-                          </>
-                        )}
-                      </button>
-                    </div>
-                    <div className="pt-1.5">
-                      {(() => {
-                        const isScreenDisabled =
-                          disabledScreenShareUids.has(user.uid) ||
-                          disabledScreenShareUids.has(Number(user.uid)) ||
-                          disabledScreenShareUids.has(String(user.uid));
-                        return (
-                          <button
-                            onClick={() => handleToggleStudentScreenShare(user.uid)}
-                            className={`w-full flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg text-xs font-semibold transition-all duration-150 cursor-pointer shadow-sm active:scale-95 ${
-                              isScreenDisabled
-                                ? 'bg-green-500/20 text-green-300 hover:bg-green-600 hover:text-white border border-green-500/40'
-                                : 'bg-red-500/20 text-red-300 hover:bg-red-600 hover:text-white border border-red-500/40'
-                            }`}
-                            title={isScreenDisabled ? `Allow ${studentName} to share screen` : `Disable ${studentName}'s screen sharing`}
-                          >
-                            <Monitor size={13} />
-                            <span>{isScreenDisabled ? 'Allow Screen Share' : 'Disable Screen Share'}</span>
-                          </button>
-                        );
-                      })()}
+
+                      {/* Compact Icon Controls */}
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        <button
+                          onClick={() => handleToggleStudentAudio(user.uid, user.hasAudio)}
+                          className={`p-2 rounded-lg transition-all duration-150 cursor-pointer active:scale-95 border ${
+                            user.hasAudio
+                              ? 'bg-green-500/20 text-green-400 hover:bg-red-500/30 hover:text-red-300 border-green-500/40 hover:border-red-500/40'
+                              : 'bg-red-500/20 text-red-400 hover:bg-green-500/30 hover:text-green-300 border-red-500/40 hover:border-green-500/40'
+                          }`}
+                          title={user.hasAudio ? `Mute ${studentName}'s mic` : `Unmute ${studentName}'s mic`}
+                        >
+                          {user.hasAudio ? <Mic size={15} /> : <MicOff size={15} />}
+                        </button>
+
+                        <button
+                          onClick={() => handleToggleStudentVideo(user.uid, user.hasVideo)}
+                          className={`p-2 rounded-lg transition-all duration-150 cursor-pointer active:scale-95 border ${
+                            user.hasVideo
+                              ? 'bg-green-500/20 text-green-400 hover:bg-red-500/30 hover:text-red-300 border-green-500/40 hover:border-red-500/40'
+                              : 'bg-red-500/20 text-red-400 hover:bg-green-500/30 hover:text-green-300 border-red-500/40 hover:border-green-500/40'
+                          }`}
+                          title={user.hasVideo ? `Turn off ${studentName}'s camera` : `Turn on ${studentName}'s camera`}
+                        >
+                          {user.hasVideo ? <Video size={15} /> : <VideoOff size={15} />}
+                        </button>
+
+                        {(() => {
+                          const isScreenDisabled =
+                            disabledScreenShareUids.has(user.uid) ||
+                            disabledScreenShareUids.has(Number(user.uid)) ||
+                            disabledScreenShareUids.has(String(user.uid));
+                          return (
+                            <button
+                              onClick={() => handleToggleStudentScreenShare(user.uid)}
+                              className={`p-2 rounded-lg transition-all duration-150 cursor-pointer active:scale-95 border ${
+                                isScreenDisabled
+                                  ? 'bg-red-500/20 text-red-400 hover:bg-green-500/30 hover:text-green-300 border-red-500/40 hover:border-green-500/40'
+                                  : 'bg-green-500/20 text-green-400 hover:bg-red-500/30 hover:text-red-300 border-green-500/40 hover:border-red-500/40'
+                              }`}
+                              title={isScreenDisabled ? `Allow ${studentName} to share screen` : `Disable ${studentName}'s screen sharing`}
+                            >
+                              <Monitor size={15} />
+                            </button>
+                          );
+                        })()}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1564,6 +1570,24 @@ const AgoraVideoSession = ({
           </div>
         </div>
       </div>
+
+      {/* Bottom Chat Toast */}
+      {chatToast && !showChat && (
+        <div
+          onClick={() => {
+            setShowChat(true);
+            setUnreadChatCount(0);
+            setChatToast(null);
+          }}
+          className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 max-w-sm w-[90%] bg-gray-900/95 border border-blue-500/40 text-white px-4 py-2.5 rounded-xl shadow-2xl flex items-center gap-3 cursor-pointer hover:bg-gray-800 transition-colors"
+        >
+          <MessageSquare size={18} className="text-blue-400 flex-shrink-0" />
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-semibold text-blue-300 truncate">{chatToast.senderName}</p>
+            <p className="text-sm text-gray-100 truncate">{chatToast.text}</p>
+          </div>
+        </div>
+      )}
 
       {/* In-Call Chat Drawer */}
       {showChat && (

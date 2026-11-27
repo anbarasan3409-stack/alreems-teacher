@@ -96,10 +96,14 @@ const AgoraVideoSession = ({
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState('');
   const [unreadChatCount, setUnreadChatCount] = useState(0);
+  const [chatToast, setChatToast] = useState(null);
+  const chatToastTimerRef = useRef(null);
   const showChatRef = useRef(false);
   const chatEnabledRef = useRef(true);
   showChatRef.current = showChat;
   chatEnabledRef.current = chatEnabled;
+  const isScreenSharingRef = useRef(false);
+  isScreenSharingRef.current = isScreenSharing;
 
   // Student screen share controls
   const [studentScreenShareEnabled, setStudentScreenShareEnabled] = useState(true);
@@ -116,7 +120,7 @@ const AgoraVideoSession = ({
         videoElement.autoplay = true;
         videoElement.playsInline = true;
 
-        await Promise.resolve(localVideoTrack.play(videoElement));
+        await Promise.resolve(localVideoTrack.play(videoElement, { mirror: !isScreenSharingRef.current }));
         setVideoReady(true);
       } catch (error) {}
     }
@@ -133,7 +137,7 @@ const AgoraVideoSession = ({
             videoElement.autoplay = true;
             videoElement.playsInline = true;
             
-            await Promise.resolve(localVideoTrack.play(videoElement));
+            await Promise.resolve(localVideoTrack.play(videoElement, { mirror: !isScreenSharingRef.current }));
             setVideoReady(true);
           }
         } catch (error) {}
@@ -153,7 +157,7 @@ const AgoraVideoSession = ({
         videoElement.autoplay = true;
         videoElement.playsInline = true;
 
-        Promise.resolve(localVideoTrack.play(videoElement))
+        Promise.resolve(localVideoTrack.play(videoElement, { mirror: !isScreenSharingRef.current }))
           .then(() => {
             setVideoReady(true);
           })
@@ -161,7 +165,7 @@ const AgoraVideoSession = ({
             setTimeout(() => {
               try {
                 if (localVideoRef.current && localVideoTrack) {
-                  Promise.resolve(localVideoTrack.play(localVideoRef.current)).catch(() => {});
+                  Promise.resolve(localVideoTrack.play(localVideoRef.current, { mirror: !isScreenSharingRef.current })).catch(() => {});
                 }
               } catch (e) {}
             }, 1000);
@@ -376,6 +380,13 @@ const AgoraVideoSession = ({
               if (!showChatRef.current) {
                 setUnreadChatCount(c => c + 1);
               }
+              setChatToast({
+                senderName: info.senderName || 'Student',
+                senderRole: info.senderRole || 'student',
+                text: String(info.text)
+              });
+              if (chatToastTimerRef.current) clearTimeout(chatToastTimerRef.current);
+              chatToastTimerRef.current = setTimeout(() => setChatToast(null), 4000);
             }
           }
 
@@ -611,7 +622,7 @@ const AgoraVideoSession = ({
             const container = document.getElementById(`remote-video-${user.uid}`);
             if (container && user.videoTrack) {
               container.innerHTML = '';
-              user.videoTrack.play(container);
+              user.videoTrack.play(container, { mirror: false });
             }
           } catch (videoErr) {
             console.warn('Remote video play failed:', videoErr);
@@ -718,7 +729,7 @@ const AgoraVideoSession = ({
       screenTrackRef.current = screenTrack;
       
       if (localVideoRef.current) {
-        screenTrack.play(localVideoRef.current);
+        screenTrack.play(localVideoRef.current, { mirror: false });
       }
       
       setLocalVideoTrack(screenTrack);
@@ -1560,6 +1571,24 @@ const AgoraVideoSession = ({
           </div>
         </div>
       </div>
+
+      {/* Bottom Chat Toast */}
+      {chatToast && !showChat && (
+        <div
+          onClick={() => {
+            setShowChat(true);
+            setUnreadChatCount(0);
+            setChatToast(null);
+          }}
+          className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 max-w-sm w-[90%] bg-gray-900/95 border border-blue-500/40 text-white px-4 py-2.5 rounded-xl shadow-2xl flex items-center gap-3 cursor-pointer hover:bg-gray-800 transition-colors"
+        >
+          <MessageSquare size={18} className="text-blue-400 flex-shrink-0" />
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-semibold text-blue-300 truncate">{chatToast.senderName}</p>
+            <p className="text-sm text-gray-100 truncate">{chatToast.text}</p>
+          </div>
+        </div>
+      )}
 
       {/* In-Call Chat Drawer */}
       {showChat && (
